@@ -22,7 +22,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import java.net.URLEncoder
-
+import android.Manifest
 class CallForegroundService : Service() {
 
     companion object {
@@ -32,7 +32,10 @@ class CallForegroundService : Service() {
         private const val MISSED_CALL_NOTIFICATION_ID_BASE = 200
     }
 
-    private lateinit var telephonyManager: TelephonyManager
+    // Manager por defecto para crear el específico de la SIM
+    private lateinit var defaultTelephonyManager: TelephonyManager
+    // Manager que escuchará en una SIM específica
+    private var targetedTelephonyManager: TelephonyManager? = null
     private lateinit var phoneStateListener: PhoneStateListener
 
     override fun onCreate() {
@@ -40,9 +43,7 @@ class CallForegroundService : Service() {
         createNotificationChannels()
     }
 
-    // DESPUÉS (CÓDIGO FINAL)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -53,15 +54,13 @@ class CallForegroundService : Service() {
 
         val notification = NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
             .setContentTitle("MSM activo")
-            .setContentText("Servicio de llamadas en ejecución.") // Texto más adecuado para algo persistente
-            .setSmallIcon(R.drawable.icono)
+            .setContentText("Servicio de llamadas en ejecución.")
+            .setSmallIcon(R.drawable.icono) // Asegúrate de tener este icono
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW) // Prioridad baja es correcta para un servicio silencioso
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT) // Prioridad para visibilidad en lock screen
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setContentIntent(pendingIntent)
-            // --- LÍNEAS NUEVAS AÑADIDAS ---
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // 1. Hacer visible en pantalla de bloqueo
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)      // 2. Clasificar como notificación de servicio
-            // --------------------------------
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -74,12 +73,33 @@ class CallForegroundService : Service() {
             startForeground(FOREGROUND_NOTIFICATION_ID, notification)
         }
 
+        // Inicia o reinicia la escucha con la configuración actual
         startCallListener()
         return START_STICKY
     }
 
+    /**
+     * MÉTODO MODIFICADO PARA LA LÓGICA DE SIM DUAL
+     */
     private fun startCallListener() {
-        telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        // Inicializa el manager por defecto si no lo está
+        if (!::defaultTelephonyManager.isInitialized) {
+            defaultTelephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        }
+
+        // Detiene cualquier escucha anterior para evitar duplicados
+        targetedTelephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
+
+        // 1. LEE LA SIM SELECCIONADA POR EL USUARIO
+        val prefs = PreferenceManager.getDefaultSharedPreferences(applicationContext)
+        val selectedSubId = prefs.getInt("selected_sim_subscription_id", -1)
+
+        if (selectedSubId == -1) {
+            Log.w("CallService", "No se ha seleccionado una SIM. El servicio no escuchará llamadas.")
+            return // Salimos si no hay SIM seleccionada
+        }
+
+        Log.d("CallService", "Configurando escucha para la Subscription ID: $selectedSubId")
 
         phoneStateListener = object : PhoneStateListener() {
             var isIncoming = false
@@ -87,7 +107,6 @@ class CallForegroundService : Service() {
             var incomingNumber: String? = null
 
             override fun onCallStateChanged(state: Int, number: String?) {
-                val prefs = PreferenceManager.getDefaultSharedPreferences(applicationContext)
                 val serviceActive = prefs.getBoolean("service_active", true)
                 if (!serviceActive) return
 
@@ -99,7 +118,7 @@ class CallForegroundService : Service() {
                     TelephonyManager.CALL_STATE_RINGING -> {
                         isIncoming = true
                         isCallAnswered = false
-                        Log.d("CallService", "📞 Llamada entrante de: ${this.incomingNumber}")
+                        Log.d("CallService", "📞 Llamada entrante de: ${this.incomingNumber} en la SIM monitoreada.")
                     }
                     TelephonyManager.CALL_STATE_OFFHOOK -> {
                         if (isIncoming) {
@@ -110,11 +129,7 @@ class CallForegroundService : Service() {
                     TelephonyManager.CALL_STATE_IDLE -> {
                         if (isIncoming && !isCallAnswered && this.incomingNumber != null) {
                             Log.d("CallService", "📨 Llamada NO contestada: preparando para enviar WhatsApp.")
-
-                            val message = prefs.getString("custom_sms_message", null)
-                                ?: "Hola, te devuelvo la llamada en breve."
-
-                            // *** CAMBIO PRINCIPAL: Llamamos a la nueva función de WhatsApp ***
+                            val message = prefs.getString("custom_sms_message", null) ?: "Hola, te devuelvo la llamada en breve."
                             showWhatsAppNotification(this.incomingNumber!!, message)
                         }
                         isIncoming = false
@@ -125,130 +140,105 @@ class CallForegroundService : Service() {
             }
         }
 
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_PHONE_STATE)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
+            // 2. CREA UN TELEPHONYMANAGER ESPECÍFICO PARA ESA SIM
+            targetedTelephonyManager = defaultTelephonyManager.createForSubscriptionId(selectedSubId)
+
+            // 3. REGISTRA EL LISTENER EN ESE MANAGER ESPECÍFICO
+            targetedTelephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE)
+            Log.i("CallService", "Escuchando llamadas activamente en la SIM con ID: $selectedSubId")
         } else {
             Log.e("CallService", "❌ Permiso READ_PHONE_STATE no otorgado")
         }
     }
 
-    // =========================================================================================
-    // FUNCIÓN MODIFICADA PARA CREAR UNA NOTIFICACIÓN QUE ABRE WHATSAPP
-    // =========================================================================================
     @SuppressLint("MissingPermission")
     private fun showWhatsAppNotification(number: String, message: String) {
         val notificationManager = NotificationManagerCompat.from(this)
         if (!notificationManager.areNotificationsEnabled()) {
-            Log.e("CallService", "Error: Permiso POST_NOTIFICATIONS denegado. No se puede mostrar la notificación.")
+            Log.e("CallService", "Error: Permiso POST_NOTIFICATIONS denegado.")
             return
         }
 
         try {
-            // 1. FORMATEAR EL NÚMERO PARA WHATSAPP
-            // WhatsApp necesita el código de país y no admite caracteres como '+' o '-'.
-            // ¡IMPORTANTE! Debes ajustar esta lógica al prefijo de tu país. Ejemplo con +34 (España).
             var formattedNumber = number.replace("[^0-9]".toRegex(), "")
-            if (formattedNumber.length > 8 && !formattedNumber.startsWith("57")) {
-                // Si el número es largo y no tiene prefijo, se lo añadimos.
-                // formattedNumber = "34$formattedNumber" // -> Descomenta y ajusta a tu país.
+            // Ajusta aquí la lógica para el prefijo de tu país. Ejemplo para Colombia (+57).
+            if (formattedNumber.length == 10 && !formattedNumber.startsWith("57")) {
+                formattedNumber = "57$formattedNumber"
             }
 
-            // 2. CODIFICAR EL MENSAJE PARA LA URL
             val encodedMessage = URLEncoder.encode(message, "UTF-8")
-
-            // 3. CREAR EL INTENT PARA ABRIR WHATSAPP
             val whatsappUri = Uri.parse("https://api.whatsapp.com/send?phone=$formattedNumber&text=$encodedMessage")
             val whatsappIntent = Intent(Intent.ACTION_VIEW, whatsappUri).apply {
-                // Es importante añadir este flag si el usuario no tiene WhatsApp instalado
-                // y se abre el navegador, para que funcione correctamente.
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
 
-            // 4. CREAR EL PENDINGINTENT
             val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             } else {
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
-            val requestCode = number.hashCode() // ID único para el PendingIntent
+            val requestCode = number.hashCode()
             val whatsappPendingIntent = PendingIntent.getActivity(this, requestCode, whatsappIntent, flags)
 
-            // 5. CONSTRUIR LA NOTIFICACIÓN
             val notificationBuilder = NotificationCompat.Builder(this, MISSED_CALL_CHANNEL_ID)
                 .setSmallIcon(R.drawable.icono)
                 .setContentTitle("Llamada perdida")
                 .setContentText("De: $number")
                 .setStyle(NotificationCompat.BigTextStyle().bigText("Pulsa para responder por WhatsApp a $number."))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true) // La notificación desaparece al pulsarla
-                .setContentIntent(whatsappPendingIntent) // Acción al pulsar la notificación
-                .addAction( // Botón de acción explícito
-                    R.drawable.icono, // Icono para el botón
-                    "Enviar WhatsApp", // Texto del botón
-                    whatsappPendingIntent
-                )
+                .setAutoCancel(true)
+                .setContentIntent(whatsappPendingIntent)
+                .addAction(R.drawable.icono, "Enviar WhatsApp", whatsappPendingIntent)
 
-            // 6. MOSTRAR LA NOTIFICACIÓN
             notificationManager.notify(MISSED_CALL_NOTIFICATION_ID_BASE + requestCode, notificationBuilder.build())
-            Log.d("CallService", "Notificación para WhatsApp mostrada con éxito para el número $number.")
-
+            Log.d("CallService", "Notificación para WhatsApp mostrada para el número $number.")
         } catch (e: Exception) {
-            // Captura errores, por ejemplo, si WhatsApp no está instalado (ActivityNotFoundException)
-            // o cualquier otro problema inesperado.
             Log.e("CallService", "¡CRASH EVITADO! No se pudo crear la notificación de WhatsApp.", e)
         }
     }
 
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Canal para el servicio en primer plano
             val foregroundChannel = NotificationChannel(
                 FOREGROUND_CHANNEL_ID,
                 "Servicio Activo",
-                // CAMBIA ESTO: De LOW a DEFAULT
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Notificación persistente para mantener el servicio activo"
-                // Opcional: Puedes forzar que no tenga sonido, aunque DEFAULT ya es silencioso
                 setSound(null, null)
             }
 
-            // El canal para las llamadas perdidas ya está bien con IMPORTANCE_HIGH
             val missedCallChannel = NotificationChannel(
                 MISSED_CALL_CHANNEL_ID,
                 "Llamadas Perdidas",
                 NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Notificaciones para responder llamadas perdidas"
-            }
-
+            )
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(foregroundChannel)
             manager.createNotificationChannel(missedCallChannel)
         }
     }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // El resto de tu código (onTaskRemoved, etc.) puede permanecer igual.
-    // Lo incluyo aquí para que el archivo esté completo.
+    override fun onDestroy() {
+        super.onDestroy()
+        // Es muy importante detener la escucha para liberar recursos y evitar memory leaks
+        targetedTelephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
+        Log.d("CallService", "Servicio destruido, escucha de llamadas detenida.")
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         Log.d("CallService", "Tarea removida. Verificando si se debe reiniciar el servicio.")
-
         val prefs = PreferenceManager.getDefaultSharedPreferences(applicationContext)
         if (prefs.getBoolean("service_active", true)) {
-
-            var canRestart = false
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            var canRestart = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val roleManager = getSystemService(Context.ROLE_SERVICE) as? RoleManager
-                if (roleManager != null && roleManager.isRoleHeld(RoleManager.ROLE_CALL_REDIRECTION)) {
-                    canRestart = true
-                }
+                roleManager?.isRoleHeld(RoleManager.ROLE_CALL_REDIRECTION) == true
             } else {
-                canRestart = true
+                true
             }
-
             if (canRestart) {
                 Log.d("CallService", "Reiniciando servicio...")
                 val restartIntent = Intent(applicationContext, CallForegroundService::class.java).apply {

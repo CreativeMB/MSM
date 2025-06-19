@@ -4,6 +4,7 @@
 
     <!-- En AndroidManifest.xml -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- POST_NOTIFICATIONS se pedirá en tiempo de ejecución, pero es bueno declararlo -->
