@@ -136,12 +136,26 @@ class MainActivity : AppCompatActivity() {
         val serviceActive = prefs.getBoolean("service_active", true)
 
         updateToggleServiceButton(serviceActive)
-        messageInput.setText(prefs.getString("custom_sms_message", "Hola, te devuelvo la llamada en breve."))
+
+        val defaultMessage = """
+        💗Di lo que quieras y cuando quieras con flores♥️
+        ✨Bienvenido a 🌹Floristería Los Lirios🌹
+        📖 Excelente catálogo con una gran variedad de productos disponibles en 👉 www.floristerialoslirios.com
+
+        📲 Atendemos exclusivamente por WhatsApp, las llamadas no son atendidas por política de la empresa.
+        🧑‍💻 Por favor, envía la referencia del arreglo, dirección, fecha y hora de entrega
+        🚘 ¡Nosotros lo entregamos por ti!
+
+        🕐 Servicio disponible 24/7 por este medio. ¡Escríbenos y con gusto te ayudamos! 💐
+    """.trimIndent()
+
+        messageInput.setText(prefs.getString("custom_sms_message", defaultMessage))
 
         // Comprobamos si tenemos los permisos MÍNIMOS para INICIAR el servicio.
         val hasRequiredPermissions =
             ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED &&
-                    (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ContextCompat.checkSelfPermission(this, Manifest.permission.MANAGE_OWN_CALLS) == PackageManager.PERMISSION_GRANTED)
+                    (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+                            ContextCompat.checkSelfPermission(this, Manifest.permission.MANAGE_OWN_CALLS) == PackageManager.PERMISSION_GRANTED)
 
         if (serviceActive && hasRequiredPermissions) {
             Log.d("AppStatus", "Permisos OK. Iniciando servicio.")
@@ -154,6 +168,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
 
     private fun updateToggleServiceButton(isActive: Boolean) {
         toggleService.text = if (isActive) "Desactivar servicio" else "Activar servicio"
