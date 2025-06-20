@@ -152,7 +152,6 @@ class MainActivity : AppCompatActivity() {
                     PreferenceManager.getDefaultSharedPreferences(this@MainActivity).edit()
                         .putString("selected_whatsapp_package", selectedApp.packageName)
                         .apply()
-                    Toast.makeText(this@MainActivity, "Usando ${selectedApp.displayName}", Toast.LENGTH_SHORT).show()
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -215,10 +214,6 @@ class MainActivity : AppCompatActivity() {
         if (isPackageInstalled("com.whatsapp.w4b", packageManager)) {
             installedApps.add(WhatsAppAppInfo("WhatsApp Business", "com.whatsapp.w4b"))
         }
-
-        // Estos logs ahora deberían mostrar el resultado correcto
-        Log.d("WhatsAppCheck", "Número de apps de WhatsApp encontradas: ${installedApps.size}")
-        Log.d("WhatsAppCheck", "Apps encontradas: ${installedApps.joinToString { it.displayName }}")
 
         this.whatsAppAppList = installedApps
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
