@@ -17,12 +17,13 @@ import android.preference.PreferenceManager
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyManager
 import android.util.Log
-import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import java.net.URLEncoder
 import android.Manifest
+
+
 class CallForegroundService : Service() {
 
     companion object {
@@ -53,8 +54,8 @@ class CallForegroundService : Service() {
         )
 
         val notification = NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
-            .setContentTitle("MSM activo")
-            .setContentText("Servicio de llamadas en ejecución.")
+            .setContentTitle("✅ Servicio de respuesta activo")
+            .setContentText("Mensaje listo. Toca para enviar")
             .setSmallIcon(R.drawable.icono) // Asegúrate de tener este icono
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT) // Prioridad para visibilidad en lock screen
@@ -162,16 +163,42 @@ class CallForegroundService : Service() {
 
         try {
             var formattedNumber = number.replace("[^0-9]".toRegex(), "")
-            // Ajusta aquí la lógica para el prefijo de tu país. Ejemplo para Colombia (+57).
             if (formattedNumber.length == 10 && !formattedNumber.startsWith("57")) {
                 formattedNumber = "57$formattedNumber"
             }
 
+            // --- LÓGICA DE INTENT MEJORADA ---
+            val whatsAppBusinessPackage = "com.whatsapp.w4b"
+            val whatsAppPackage = "com.whatsapp"
+            val packageManager = this.packageManager
+
+            // Preparamos el Intent
+            val whatsappIntent = Intent(Intent.ACTION_VIEW)
             val encodedMessage = URLEncoder.encode(message, "UTF-8")
-            val whatsappUri = Uri.parse("https://api.whatsapp.com/send?phone=$formattedNumber&text=$encodedMessage")
-            val whatsappIntent = Intent(Intent.ACTION_VIEW, whatsappUri).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+            // Prioridad 1: Intentar con WhatsApp Business de forma directa
+            if (isPackageInstalled(whatsAppBusinessPackage, packageManager)) {
+                Log.d("CallService", "WhatsApp Business encontrado. Creando Intent directo.")
+                val uri = Uri.parse("https://wa.me/$formattedNumber?text=$encodedMessage")
+                whatsappIntent.data = uri
+                whatsappIntent.setPackage(whatsAppBusinessPackage)
             }
+            // Prioridad 2: Si no, intentar con WhatsApp Personal de forma directa
+            else if (isPackageInstalled(whatsAppPackage, packageManager)) {
+                Log.w("CallService", "WhatsApp Business no encontrado. Intentando con WhatsApp personal.")
+                val uri = Uri.parse("https://wa.me/$formattedNumber?text=$encodedMessage")
+                whatsappIntent.data = uri
+                whatsappIntent.setPackage(whatsAppPackage)
+            }
+            // Prioridad 3: Como último recurso, usar la URL genérica (abrirá el navegador si no hay WhatsApp)
+            else {
+                Log.e("CallService", "No se encontró ninguna versión de WhatsApp. Usando URL genérica.")
+                whatsappIntent.data = Uri.parse("https://api.whatsapp.com/send?phone=$formattedNumber&text=$encodedMessage")
+            }
+
+            whatsappIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // --- FIN DE LA LÓGICA DE INTENT MEJORADA ---
+
 
             val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -195,6 +222,16 @@ class CallForegroundService : Service() {
             Log.d("CallService", "Notificación para WhatsApp mostrada para el número $number.")
         } catch (e: Exception) {
             Log.e("CallService", "¡CRASH EVITADO! No se pudo crear la notificación de WhatsApp.", e)
+        }
+    }
+
+    private fun isPackageInstalled(packageName: String, packageManager: PackageManager): Boolean {
+        return try {
+            // Usar getPackageInfo para una verificación robusta
+            packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (e: PackageManager.NameNotFoundException) {
+            false
         }
     }
 

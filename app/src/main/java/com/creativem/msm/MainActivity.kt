@@ -33,6 +33,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnHideApp: TextView
     private lateinit var simSelectorSpinner: Spinner
     private lateinit var simSelectorLabel: TextView
+    private lateinit var whatsappSelectorSpinner: Spinner
+    private lateinit var whatsappSelectorLabel: TextView
 
     data class SimInfo(
         val subscriptionId: Int,
@@ -53,13 +55,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    data class WhatsAppAppInfo(val displayName: String, val packageName: String) {
+        override fun toString(): String = displayName
+    }
+
     private var simInfoList: List<SimInfo> = emptyList()
+    private var whatsAppAppList: List<WhatsAppAppInfo> = emptyList()
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             if (permissions.entries.all { it.value }) {
                 Toast.makeText(this, "Todos los permisos fueron concedidos.", Toast.LENGTH_SHORT).show()
                 populateSimSelector()
+                populateWhatsAppSelector()
                 requestBatteryOptimizations()
             } else {
                 Toast.makeText(this, "Algunos permisos fueron denegados.", Toast.LENGTH_LONG).show()
@@ -77,15 +85,19 @@ class MainActivity : AppCompatActivity() {
         btnHideApp = findViewById(R.id.btnHideApp)
         simSelectorSpinner = findViewById(R.id.simSelectorSpinner)
         simSelectorLabel = findViewById(R.id.simSelectorLabel)
+        whatsappSelectorSpinner = findViewById(R.id.whatsappSelectorSpinner)
+        whatsappSelectorLabel = findViewById(R.id.whatsappSelectorLabel)
 
         setupClickListeners()
         setupSimSelectorListener()
+        setupWhatsAppSelectorListener()
         checkAndRequestPermissions()
     }
 
     override fun onResume() {
         super.onResume()
         populateSimSelector()
+        populateWhatsAppSelector()
         updateUiAndServiceStatus()
     }
 
@@ -102,7 +114,6 @@ class MainActivity : AppCompatActivity() {
                 updateUiAndServiceStatus()
             }
         }
-
         btnSaveMessage.setOnClickListener {
             val message = messageInput.text.toString()
             if (message.isNotBlank()) {
@@ -112,7 +123,6 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "El mensaje no puede estar vacío", Toast.LENGTH_SHORT).show()
             }
         }
-
         btnHideApp.setOnClickListener {
             finishAndRemoveTask()
         }
@@ -134,6 +144,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupWhatsAppSelectorListener() {
+        whatsappSelectorSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (whatsAppAppList.isNotEmpty()) {
+                    val selectedApp = whatsAppAppList[position]
+                    PreferenceManager.getDefaultSharedPreferences(this@MainActivity).edit()
+                        .putString("selected_whatsapp_package", selectedApp.packageName)
+                        .apply()
+                    Toast.makeText(this@MainActivity, "Usando ${selectedApp.displayName}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private fun populateSimSelector() {
         val hasPhoneStatePerm = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
@@ -142,7 +167,6 @@ class MainActivity : AppCompatActivity() {
         if (!hasPhoneStatePerm || !hasPhoneNumbersPerm) {
             simSelectorSpinner.visibility = View.GONE
             simSelectorLabel.visibility = View.GONE
-            Log.w("SimSelector", "Faltan permisos. Ocultando selector de SIM.")
             return
         }
 
@@ -161,8 +185,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         simSelectorSpinner.visibility = View.VISIBLE
-        simSelectorLabel.visibility = View.VISIBLE
-
+        simSelectorLabel.visibility = View.VISIBLE // <-- SIN TÍTULO PARA EL SELECTOR DE SIM
         simInfoList = activeSubscriptions.map { subInfo ->
             SimInfo(
                 subscriptionId = subInfo.subscriptionId,
@@ -171,10 +194,8 @@ class MainActivity : AppCompatActivity() {
                 carrierName = subInfo.carrierName?.toString()
             )
         }
-
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, simInfoList)
         simSelectorSpinner.adapter = adapter
-
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
         val savedSubId = prefs.getInt("selected_sim_subscription_id", -1)
         val savedPosition = simInfoList.indexOfFirst { it.subscriptionId == savedSubId }
@@ -183,9 +204,52 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * MÉTODO CORREGIDO
-     */
+    private fun populateWhatsAppSelector() {
+        val packageManager = this.packageManager
+        val installedApps = mutableListOf<WhatsAppAppInfo>()
+
+        // Esta comprobación ahora funcionará gracias a <queries>
+        if (isPackageInstalled("com.whatsapp", packageManager)) {
+            installedApps.add(WhatsAppAppInfo("WhatsApp", "com.whatsapp"))
+        }
+        if (isPackageInstalled("com.whatsapp.w4b", packageManager)) {
+            installedApps.add(WhatsAppAppInfo("WhatsApp Business", "com.whatsapp.w4b"))
+        }
+
+        // Estos logs ahora deberían mostrar el resultado correcto
+        Log.d("WhatsAppCheck", "Número de apps de WhatsApp encontradas: ${installedApps.size}")
+        Log.d("WhatsAppCheck", "Apps encontradas: ${installedApps.joinToString { it.displayName }}")
+
+        this.whatsAppAppList = installedApps
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+
+        if (installedApps.size <= 1) {
+            whatsappSelectorSpinner.visibility = View.GONE
+            whatsappSelectorLabel.visibility = View.GONE
+            val packageName = if (installedApps.isNotEmpty()) installedApps[0].packageName else null
+            prefs.edit().putString("selected_whatsapp_package", packageName).apply()
+        } else {
+            whatsappSelectorSpinner.visibility = View.VISIBLE
+            whatsappSelectorLabel.visibility = View.VISIBLE
+            val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, installedApps)
+            whatsappSelectorSpinner.adapter = adapter
+            val savedPackage = prefs.getString("selected_whatsapp_package", null)
+            val savedPosition = installedApps.indexOfFirst { it.packageName == savedPackage }
+            if (savedPosition != -1) {
+                whatsappSelectorSpinner.setSelection(savedPosition)
+            }
+        }
+    }
+
+    private fun isPackageInstalled(packageName: String, packageManager: PackageManager): Boolean {
+        return try {
+            packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (e: PackageManager.NameNotFoundException) {
+            false
+        }
+    }
+
     private fun checkAndRequestPermissions() {
         val permissionsToRequest = mutableListOf(
             Manifest.permission.READ_PHONE_STATE,
@@ -197,25 +261,19 @@ class MainActivity : AppCompatActivity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             permissionsToRequest.add(Manifest.permission.MANAGE_OWN_CALLS)
+            permissionsToRequest.add(Manifest.permission.READ_PHONE_NUMBERS)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             permissionsToRequest.add(Manifest.permission.FOREGROUND_SERVICE_PHONE_CALL)
         }
-        // ¡¡CORRECCIÓN!! AÑADIR EL PERMISO AQUÍ, ANTES DE FILTRAR
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            permissionsToRequest.add(Manifest.permission.READ_PHONE_NUMBERS)
-        }
-
-        // AHORA SÍ FILTRAMOS LA LISTA COMPLETA
         val permissionsNeeded = permissionsToRequest.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.distinct() // Usamos distinct() para no pedir el mismo permiso dos veces por error
-
+        }.distinct()
         if (permissionsNeeded.isNotEmpty()) {
             requestPermissionLauncher.launch(permissionsNeeded.toTypedArray())
         } else {
-            // Si ya tenemos todos los permisos, poblamos el spinner y actualizamos
             populateSimSelector()
+            populateWhatsAppSelector()
             updateUiAndServiceStatus()
         }
     }
@@ -223,9 +281,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateUiAndServiceStatus() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
         val serviceActive = prefs.getBoolean("service_active", true)
-
         updateToggleServiceButton(serviceActive)
-
         val defaultMessage = """
         💗Di lo que quieras y cuando quieras con flores♥️
         ✨Bienvenido a 🌹Floristería Los Lirios🌹
@@ -236,11 +292,9 @@ class MainActivity : AppCompatActivity() {
         🚘 ¡Nosotros lo entregamos por ti!
 
         🕐 Servicio disponible 24/7 por este medio. ¡Escríbenos y con gusto te ayudamos! 💐
-    """.trimIndent()
+        """.trimIndent()
         messageInput.setText(prefs.getString("custom_sms_message", defaultMessage))
-
         val hasRequiredPermissions = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-
         if (serviceActive && hasRequiredPermissions) {
             Log.d("AppStatus", "Permisos OK. Iniciando servicio.")
             startForegroundCallService()
