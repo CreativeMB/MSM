@@ -28,6 +28,34 @@
                 android:orientation="vertical"
                 android:gravity="center_horizontal"
                 android:padding="20dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="16dp"
+                    android:gravity="center_vertical">
+
+                    <EditText
+                        android:id="@+id/manualPhoneNumber"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="Ingrese número manual"
+                        android:inputType="phone"
+                        android:padding="8dp"
+                        android:background="@android:drawable/editbox_background" />
+
+                    <TextView
+                        android:id="@+id/sendManualMessage"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Enviar"
+                        android:textColor="#FFFFFF"
+                        android:background="#FB8C00"
+                        android:padding="10dp"
+                        android:layout_marginStart="8dp"
+                        android:textSize="16sp" />
+                </LinearLayout>
 
 
                 <EditText
@@ -41,43 +69,57 @@
                     android:padding="12dp"
                     android:textColor="#000000"
                     android:textSize="16sp" />
-                <TextView
-                    android:id="@+id/btnSaveMessage"
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="💾 Guardar mensaje"
-                    android:textColor="#141313"
-                    android:backgroundTint="#2196F3"
-                    android:background="#2196F3"
-                    android:paddingHorizontal="20dp"
-                    android:paddingVertical="10dp"
+                    android:orientation="horizontal"
                     android:layout_marginTop="16dp"
-                    android:textStyle="bold"
-                    />
-                <TextView
-                    android:id="@+id/toggleService"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Desactivar servicio"
-                    android:textSize="16sp"
-                    android:textColor="@android:color/holo_red_dark"
-                    android:layout_marginTop="24dp"
-                    android:padding="8dp"
-                    android:background="#2196F3"
-                    android:clickable="true"
-                    android:focusable="true" />
-                <TextView
-                    android:id="@+id/btnHideApp"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Cerrar"
-                    android:textColor="#121212"
-                    android:background="#FB8C00"
-                    android:padding="10dp"
-                    android:layout_marginTop="20dp"
                     android:gravity="center"
-                    android:textSize="16sp"
-                    />
+                    android:weightSum="3"
+                    android:paddingHorizontal="8dp">
+
+                    <TextView
+                        android:id="@+id/btnSaveMessage"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="💾Guardar"
+                        android:textColor="#FFFFFF"
+                        android:background="#2196F3"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="10dp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_marginEnd="4dp" />
+
+                    <TextView
+                        android:id="@+id/toggleService"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Desactivar servicio"
+                        android:textColor="#FFFFFF"
+                        android:background="#2196F3"
+                        android:textSize="14sp"
+                        android:padding="10dp"
+                        android:gravity="center"
+                        android:layout_marginHorizontal="4dp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/btnHideApp"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Cerrar"
+                        android:textColor="#FFFFFF"
+                        android:background="#FB8C00"
+                        android:padding="10dp"
+                        android:textSize="16sp"
+                        android:gravity="center"
+                        android:layout_marginStart="4dp" />
+                </LinearLayout>
+
                 <TextView
                     android:id="@+id/simSelectorLabel"
                     android:layout_width="wrap_content"

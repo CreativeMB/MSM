@@ -35,6 +35,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var simSelectorLabel: TextView
     private lateinit var whatsappSelectorSpinner: Spinner
     private lateinit var whatsappSelectorLabel: TextView
+    private lateinit var manualPhoneNumber: EditText
+    private lateinit var sendManualMessage: TextView
 
     data class SimInfo(
         val subscriptionId: Int,
@@ -87,6 +89,8 @@ class MainActivity : AppCompatActivity() {
         simSelectorLabel = findViewById(R.id.simSelectorLabel)
         whatsappSelectorSpinner = findViewById(R.id.whatsappSelectorSpinner)
         whatsappSelectorLabel = findViewById(R.id.whatsappSelectorLabel)
+        manualPhoneNumber = findViewById(R.id.manualPhoneNumber)
+        sendManualMessage = findViewById(R.id.sendManualMessage)
 
         setupClickListeners()
         setupSimSelectorListener()
@@ -101,6 +105,7 @@ class MainActivity : AppCompatActivity() {
         updateUiAndServiceStatus()
     }
 
+
     private fun setupClickListeners() {
         toggleService.setOnClickListener {
             val prefs = PreferenceManager.getDefaultSharedPreferences(this)
@@ -114,6 +119,26 @@ class MainActivity : AppCompatActivity() {
                 updateUiAndServiceStatus()
             }
         }
+        sendManualMessage.setOnClickListener {
+            val number = manualPhoneNumber.text.toString().trim()
+            if (number.isBlank()) {
+                Toast.makeText(this, "Ingrese un número válido", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+            val message = prefs.getString("custom_sms_message", "") ?: ""
+            val selectedPackage = if (whatsappSelectorSpinner.visibility == View.VISIBLE && whatsappSelectorSpinner.selectedItem is WhatsAppAppInfo) {
+                (whatsappSelectorSpinner.selectedItem as WhatsAppAppInfo).packageName
+            } else {
+                "com.whatsapp" // valor por defecto
+            }
+
+            sendWhatsAppMessage(number, message, selectedPackage)
+            finishAndRemoveTask()
+        }
+
+
         btnSaveMessage.setOnClickListener {
             val message = messageInput.text.toString()
             if (message.isNotBlank()) {
@@ -335,4 +360,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+    private fun sendWhatsAppMessage(phone: String, message: String, packageName: String) {
+        val formattedPhone = phone.replace("+", "").replace(" ", "").replace("-", "").trim()
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse("https://wa.me/$formattedPhone?text=${Uri.encode(message)}")
+            setPackage(packageName)
+        }
+        if (intent.resolveActivity(packageManager) != null) {
+            startActivity(intent)
+        } else {
+            Toast.makeText(this, "No se pudo abrir WhatsApp", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+
 }
