@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.preference.PreferenceManager
 import android.provider.Settings
 import android.telephony.SubscriptionManager
 import android.util.Log
@@ -23,7 +24,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.preference.PreferenceManager
+
 
 class MainActivity : AppCompatActivity() {
 
@@ -47,12 +48,8 @@ class MainActivity : AppCompatActivity() {
         override fun toString(): String {
             return buildString {
                 append(displayName)
-                if (!phoneNumber.isNullOrBlank()) {
-                    append(" - $phoneNumber")
-                }
-                if (!carrierName.isNullOrBlank() && carrierName != displayName) {
-                    append(" ($carrierName)")
-                }
+                if (!phoneNumber.isNullOrBlank()) append(" - $phoneNumber")
+                if (!carrierName.isNullOrBlank() && carrierName != displayName) append(" ($carrierName)")
             }
         }
     }
@@ -105,20 +102,15 @@ class MainActivity : AppCompatActivity() {
         updateUiAndServiceStatus()
     }
 
-
     private fun setupClickListeners() {
         toggleService.setOnClickListener {
             val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-            val isCurrentlyActive = prefs.getBoolean("service_active", true)
-            val isNowActive = !isCurrentlyActive
+            val isNowActive = !prefs.getBoolean("service_active", true)
             prefs.edit().putBoolean("service_active", isNowActive).apply()
             Toast.makeText(this, if (isNowActive) "Servicio activado" else "Servicio desactivado", Toast.LENGTH_SHORT).show()
-            if (isNowActive) {
-                checkAndRequestPermissions()
-            } else {
-                updateUiAndServiceStatus()
-            }
+            if (isNowActive) checkAndRequestPermissions() else updateUiAndServiceStatus()
         }
+
         sendManualMessage.setOnClickListener {
             val number = manualPhoneNumber.text.toString().trim()
             if (number.isBlank()) {
@@ -128,16 +120,24 @@ class MainActivity : AppCompatActivity() {
 
             val prefs = PreferenceManager.getDefaultSharedPreferences(this)
             val message = prefs.getString("custom_sms_message", "") ?: ""
-            val selectedPackage = if (whatsappSelectorSpinner.visibility == View.VISIBLE && whatsappSelectorSpinner.selectedItem is WhatsAppAppInfo) {
-                (whatsappSelectorSpinner.selectedItem as WhatsAppAppInfo).packageName
-            } else {
-                "com.whatsapp" // valor por defecto
+            Log.d("DEBUG_MSM", "Mensaje recuperado: '$message'")
+
+            if (message.isBlank()) {
+                Toast.makeText(this, "El mensaje no puede estar vacío", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
 
+            val selectedPackage =
+                if (whatsappSelectorSpinner.visibility == View.VISIBLE && whatsappSelectorSpinner.selectedItem is WhatsAppAppInfo) {
+                    (whatsappSelectorSpinner.selectedItem as WhatsAppAppInfo).packageName
+                } else {
+                    "com.whatsapp"
+                }
+
+            Log.d("DEBUG_MSM", "Número: $number, Paquete: $selectedPackage")
             sendWhatsAppMessage(number, message, selectedPackage)
             finishAndRemoveTask()
         }
-
 
         btnSaveMessage.setOnClickListener {
             val message = messageInput.text.toString()
@@ -148,6 +148,7 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "El mensaje no puede estar vacío", Toast.LENGTH_SHORT).show()
             }
         }
+
         btnHideApp.setOnClickListener {
             finishAndRemoveTask()
         }
@@ -159,12 +160,11 @@ class MainActivity : AppCompatActivity() {
                 if (simInfoList.isNotEmpty()) {
                     val selectedSim = simInfoList[position]
                     PreferenceManager.getDefaultSharedPreferences(this@MainActivity).edit()
-                        .putInt("selected_sim_subscription_id", selectedSim.subscriptionId)
-                        .apply()
-                    Log.d("SimSelection", "SIM seleccionada: ${selectedSim.displayName} con ID: ${selectedSim.subscriptionId}")
+                        .putInt("selected_sim_subscription_id", selectedSim.subscriptionId).apply()
                     updateUiAndServiceStatus()
                 }
             }
+
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
     }
@@ -175,10 +175,10 @@ class MainActivity : AppCompatActivity() {
                 if (whatsAppAppList.isNotEmpty()) {
                     val selectedApp = whatsAppAppList[position]
                     PreferenceManager.getDefaultSharedPreferences(this@MainActivity).edit()
-                        .putString("selected_whatsapp_package", selectedApp.packageName)
-                        .apply()
+                        .putString("selected_whatsapp_package", selectedApp.packageName).apply()
                 }
             }
+
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
     }
@@ -202,37 +202,26 @@ class MainActivity : AppCompatActivity() {
             simSelectorLabel.visibility = View.GONE
             if (activeSubscriptions.isNotEmpty()) {
                 PreferenceManager.getDefaultSharedPreferences(this).edit()
-                    .putInt("selected_sim_subscription_id", activeSubscriptions[0].subscriptionId)
-                    .apply()
+                    .putInt("selected_sim_subscription_id", activeSubscriptions[0].subscriptionId).apply()
             }
             return
         }
 
         simSelectorSpinner.visibility = View.VISIBLE
-        simSelectorLabel.visibility = View.VISIBLE // <-- SIN TÍTULO PARA EL SELECTOR DE SIM
-        simInfoList = activeSubscriptions.map { subInfo ->
-            SimInfo(
-                subscriptionId = subInfo.subscriptionId,
-                displayName = subInfo.displayName.toString(),
-                phoneNumber = subInfo.number,
-                carrierName = subInfo.carrierName?.toString()
-            )
+        simSelectorLabel.visibility = View.VISIBLE
+        simInfoList = activeSubscriptions.map {
+            SimInfo(it.subscriptionId, it.displayName.toString(), it.number, it.carrierName?.toString())
         }
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, simInfoList)
         simSelectorSpinner.adapter = adapter
-        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        val savedSubId = prefs.getInt("selected_sim_subscription_id", -1)
-        val savedPosition = simInfoList.indexOfFirst { it.subscriptionId == savedSubId }
-        if (savedPosition != -1) {
-            simSelectorSpinner.setSelection(savedPosition)
-        }
+        val savedId = PreferenceManager.getDefaultSharedPreferences(this).getInt("selected_sim_subscription_id", -1)
+        val savedPosition = simInfoList.indexOfFirst { it.subscriptionId == savedId }
+        if (savedPosition != -1) simSelectorSpinner.setSelection(savedPosition)
     }
 
     private fun populateWhatsAppSelector() {
         val packageManager = this.packageManager
         val installedApps = mutableListOf<WhatsAppAppInfo>()
-
-        // Esta comprobación ahora funcionará gracias a <queries>
         if (isPackageInstalled("com.whatsapp", packageManager)) {
             installedApps.add(WhatsAppAppInfo("WhatsApp", "com.whatsapp"))
         }
@@ -246,8 +235,7 @@ class MainActivity : AppCompatActivity() {
         if (installedApps.size <= 1) {
             whatsappSelectorSpinner.visibility = View.GONE
             whatsappSelectorLabel.visibility = View.GONE
-            val packageName = if (installedApps.isNotEmpty()) installedApps[0].packageName else null
-            prefs.edit().putString("selected_whatsapp_package", packageName).apply()
+            prefs.edit().putString("selected_whatsapp_package", installedApps.firstOrNull()?.packageName).apply()
         } else {
             whatsappSelectorSpinner.visibility = View.VISIBLE
             whatsappSelectorLabel.visibility = View.VISIBLE
@@ -255,9 +243,7 @@ class MainActivity : AppCompatActivity() {
             whatsappSelectorSpinner.adapter = adapter
             val savedPackage = prefs.getString("selected_whatsapp_package", null)
             val savedPosition = installedApps.indexOfFirst { it.packageName == savedPackage }
-            if (savedPosition != -1) {
-                whatsappSelectorSpinner.setSelection(savedPosition)
-            }
+            if (savedPosition != -1) whatsappSelectorSpinner.setSelection(savedPosition)
         }
     }
 
@@ -271,26 +257,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkAndRequestPermissions() {
-        val permissionsToRequest = mutableListOf(
+        val permissions = mutableListOf(
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.READ_CALL_LOG,
             Manifest.permission.RECEIVE_BOOT_COMPLETED
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            permissionsToRequest.add(Manifest.permission.MANAGE_OWN_CALLS)
-            permissionsToRequest.add(Manifest.permission.READ_PHONE_NUMBERS)
+            permissions.add(Manifest.permission.MANAGE_OWN_CALLS)
+            permissions.add(Manifest.permission.READ_PHONE_NUMBERS)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            permissionsToRequest.add(Manifest.permission.FOREGROUND_SERVICE_PHONE_CALL)
+            permissions.add(Manifest.permission.FOREGROUND_SERVICE_PHONE_CALL)
         }
-        val permissionsNeeded = permissionsToRequest.filter {
+
+        val needed = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.distinct()
-        if (permissionsNeeded.isNotEmpty()) {
-            requestPermissionLauncher.launch(permissionsNeeded.toTypedArray())
+        }
+        if (needed.isNotEmpty()) {
+            requestPermissionLauncher.launch(needed.toTypedArray())
         } else {
             populateSimSelector()
             populateWhatsAppSelector()
@@ -302,33 +289,43 @@ class MainActivity : AppCompatActivity() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
         val serviceActive = prefs.getBoolean("service_active", true)
         updateToggleServiceButton(serviceActive)
+
         val defaultMessage = """
         💗Di lo que quieras y cuando quieras con flores♥️
         ✨Bienvenido a 🌹Floristería Los Lirios🌹
-        📖 Excelente catálogo con una gran variedad de productos disponibles en 👉 www.floristerialoslirios.com
+        📖 Catálogo completo 👉 www.floristerialoslirios.com
 
-        📲 Atendemos exclusivamente por WhatsApp, las llamadas no son atendidas por política de la empresa.
-        🧑‍💻 Por favor, envía la referencia del arreglo, dirección, fecha y hora de entrega
-        🚘 ¡Nosotros lo entregamos por ti!
+        📲 Atendemos por WhatsApp (no llamadas).
+        🧑‍💻 Envía referencia, dirección y hora.
+        🚘 ¡Entregamos por ti! Servicio 24/7.
+    """.trimIndent()
 
-        🕐 Servicio disponible 24/7 por este medio. ¡Escríbenos y con gusto te ayudamos! 💐
-        """.trimIndent()
+        val storedMessage = prefs.getString("custom_sms_message", null)
+        if (storedMessage.isNullOrBlank()) {
+            prefs.edit().putString("custom_sms_message", defaultMessage).apply()
+            Log.d("DEBUG_MSM", "Mensaje predeterminado guardado automáticamente.")
+        }
+
         messageInput.setText(prefs.getString("custom_sms_message", defaultMessage))
-        val hasRequiredPermissions = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-        if (serviceActive && hasRequiredPermissions) {
-            Log.d("AppStatus", "Permisos OK. Iniciando servicio.")
-            startForegroundCallService()
-        } else {
-            Log.w("AppStatus", "Servicio desactivado o faltan permisos. Deteniendo servicio.")
-            stopService(Intent(this, CallForegroundService::class.java))
-            if (serviceActive && !hasRequiredPermissions) {
-                Toast.makeText(this, "Faltan permisos. El servicio no puede iniciar.", Toast.LENGTH_LONG).show()
+
+        val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+
+        if (serviceActive && hasPermission) {
+            if (!isServiceRunning(this, CallForegroundService::class.java)) {
+                Log.d("DEBUG_MSM", "Iniciando servicio porque no estaba corriendo.")
+                startForegroundCallService()
+            } else {
+                Log.d("DEBUG_MSM", "El servicio ya estaba en ejecución. No se reinicia.")
             }
+        } else {
+            Log.d("DEBUG_MSM", "Deteniendo servicio (desactivado o sin permisos).")
+            stopService(Intent(this, CallForegroundService::class.java))
         }
     }
 
-    private fun updateToggleServiceButton(isActive: Boolean) {
-        toggleService.text = if (isActive) "Desactivar servicio" else "Activar servicio"
+
+    private fun updateToggleServiceButton(active: Boolean) {
+        toggleService.text = if (active) "Desactivar servicio" else "Activar servicio"
     }
 
     private fun startForegroundCallService() {
@@ -337,41 +334,66 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestBatteryOptimizations() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-                try {
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") }
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    Log.w("BatteryOpt", "No se pudo abrir la pantalla de optimización de batería estándar.", e)
-                }
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
             }
-        }
-        if (Build.MANUFACTURER.equals("huawei", ignoreCase = true) || Build.MANUFACTURER.equals("honor", ignoreCase = true)) {
             try {
-                val intent = Intent().apply {
-                    component = ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")
-                }
-                Toast.makeText(this, "IMPORTANTE: Busca 'MSM', desactiva el interruptor y activa las 3 opciones manualmente.", Toast.LENGTH_LONG).show()
                 startActivity(intent)
             } catch (e: Exception) {
-                Log.e("HonorSettings", "No se pudo abrir la pantalla de 'Inicio de aplicaciones'.", e)
+                Log.e("BatteryOpt", "No se pudo abrir optimización batería", e)
             }
-        }
-    }
-    private fun sendWhatsAppMessage(phone: String, message: String, packageName: String) {
-        val formattedPhone = phone.replace("+", "").replace(" ", "").replace("-", "").trim()
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse("https://wa.me/$formattedPhone?text=${Uri.encode(message)}")
-            setPackage(packageName)
-        }
-        if (intent.resolveActivity(packageManager) != null) {
-            startActivity(intent)
-        } else {
-            Toast.makeText(this, "No se pudo abrir WhatsApp", Toast.LENGTH_SHORT).show()
         }
     }
 
+    private fun sendWhatsAppMessage(phone: String, message: String, packageName: String) {
+        val formattedPhone = phone.filter { it.isDigit() }
+        if (formattedPhone.length < 10) {
+            Toast.makeText(this, "Número no válido para WhatsApp", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (message.isBlank()) {
+            Toast.makeText(this, "El mensaje no puede estar vacío", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val fullPhone = if (formattedPhone.length == 10 && !formattedPhone.startsWith("57")) {
+            "57$formattedPhone"
+        } else formattedPhone
+
+        try {
+            if (packageName == "com.whatsapp" || packageName == "com.whatsapp.w4b") {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, message)
+                    putExtra("jid", "$fullPhone@s.whatsapp.net")
+                    setPackage(packageName)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+            } else {
+                val encodedMessage = Uri.encode(message)
+                val uri = Uri.parse("https://wa.me/$fullPhone?text=$encodedMessage")
+                val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error al abrir WhatsApp: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            Log.e("WhatsAppIntent", "Error al enviar mensaje", e)
+        }
+
+    }
+    private fun isServiceRunning(context: Context, serviceClass: Class<*>): Boolean {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        for (service in manager.getRunningServices(Int.MAX_VALUE)) {
+            if (serviceClass.name == service.service.className) {
+                return true
+            }
+        }
+        return false
+    }
 
 }
